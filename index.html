@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>bounty recommender — AI Bounty Board</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  :root {
+    --bg: #0b0e0c;
+    --panel: #121613;
+    --card: #171c18;
+    --line: #263029;
+    --ink: #e9efe8;
+    --muted: #8ba394;
+    --accent: #5fd38a;
+    --accent-dim: #2c5c40;
+    --warn: #e0b04a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; background:var(--bg); color:var(--ink);
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 22px 16px 60px; }
+  h1 { font-size: 17px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); font-size: 12.5px; line-height: 1.5; margin: 0 0 20px; }
+  .sub a { color: var(--accent); }
+  form { display:flex; gap:8px; margin-bottom: 10px; }
+  input[type=text] {
+    flex:1; background: var(--panel); border: 1px solid var(--line); color: var(--ink);
+    padding: 11px 12px; border-radius: 8px; font-size: 13.5px; font-family: inherit;
+  }
+  input[type=text]:focus { outline: none; border-color: var(--accent-dim); }
+  button {
+    background: var(--accent); color: #08130d; border: none; border-radius: 8px;
+    padding: 11px 16px; font-weight: 700; font-size: 13px; cursor: pointer; font-family: inherit;
+  }
+  button:disabled { opacity: .5; cursor: default; }
+  .hint { font-size: 11px; color: var(--muted); margin-bottom: 22px; }
+  .status { font-size: 12.5px; color: var(--muted); margin: 10px 0; min-height: 16px; }
+  .status.err { color: #e37c6d; }
+  .banner {
+    background: #1c2318; border: 1px solid var(--accent-dim); border-radius: 8px;
+    padding: 10px 12px; font-size: 12px; color: var(--warn); margin-bottom: 16px; line-height:1.5;
+  }
+  .profile {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 14px; margin-bottom: 18px; font-size: 12px; color: var(--muted); line-height:1.7;
+  }
+  .profile b { color: var(--ink); }
+  .tag { display:inline-block; background: var(--accent-dim); color: var(--accent);
+    border-radius: 5px; padding: 1px 7px; font-size: 10.5px; margin: 2px 4px 2px 0; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px 16px; margin-bottom: 10px;
+  }
+  .card .row { display:flex; justify-content: space-between; align-items:flex-start; gap: 10px; }
+  .card .title { font-size: 14px; font-weight: 700; line-height:1.35; }
+  .card .score { font-size: 20px; font-weight: 800; color: var(--accent); white-space:nowrap; }
+  .card .score span { font-size: 10px; font-weight: 400; color: var(--muted); display:block; }
+  .card .desc { font-size: 12px; color: var(--muted); line-height:1.55; margin: 6px 0 8px; }
+  .card .meta { font-size: 11px; color: var(--muted); margin-bottom: 8px; }
+  .card .meta b { color: var(--ink); }
+  .bars div { display:flex; align-items:center; gap:7px; font-size: 10.5px; color: var(--muted); margin: 3px 0; }
+  .bars .track { flex:1; height:5px; background:#0d130f; border-radius:3px; overflow:hidden; }
+  .bars .fill { height:100%; background: var(--accent); }
+  .bars .lbl { width: 76px; }
+  .bars .val { width: 26px; text-align:right; }
+  .why { font-size: 11px; color: var(--accent); margin-top: 8px; line-height:1.5; }
+  footer { font-size: 10.5px; color: var(--muted); margin-top: 26px; line-height:1.6; }
+  footer a { color: var(--accent); }
+  .empty { color: var(--muted); font-size: 12.5px; padding: 20px 0; text-align:center; }
+  details { margin-top: 22px; }
+  summary { cursor:pointer; color: var(--muted); font-size: 11.5px; }
+  pre { background:#0d110e; border:1px solid var(--line); border-radius:8px; padding:10px;
+    font-size: 10.5px; overflow-x:auto; color: #b9c9be; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🎯 bounty recommender</h1>
+  <p class="sub">
+    ranks open bounties from the live <a href="https://bounty.owockibot.xyz" target="_blank">AI Bounty Board</a>
+    for a given wallet, using that wallet's past completions on the board plus its general
+    on-chain activity on Base. everything below runs client-side against the live API — no backend, no build step.
+  </p>
+
+  <form id="f">
+    <input id="wallet" type="text" placeholder="0x... (Base wallet address)" autocomplete="off" spellcheck="false">
+    <button id="go" type="submit">rank bounties</button>
+  </form>
+  <div class="hint">try your own address, or a fresh 0x000...000 to see the cold-start ranking.</div>
+
+  <div id="status" class="status"></div>
+  <div id="output"></div>
+
+  <details>
+    <summary>raw API calls made (for debugging / verifying this is live data)</summary>
+    <pre id="raw">nothing fetched yet</pre>
+  </details>
+
+  <footer>
+    data sources: <b>GET /bounties</b> and <b>GET /stats</b> on
+    <a href="https://bounty.owockibot.xyz" target="_blank">bounty.owockibot.xyz</a> (the live board, Base network, x402/USDC) —
+    wallet activity from <a href="https://base.blockscout.com" target="_blank">Base Blockscout</a>'s public API.
+    scoring logic is entirely in this file — see the <code>scoreBounty()</code> function or the README for the breakdown.
+  </footer>
+</div>
+
+<script>
+// ---------- config ----------
+const BOARD_API = 'https://bounty.owockibot.xyz';
+const BLOCKSCOUT_API = 'https://base.blockscout.com/api/v2';
+
+// The board's live schema for who claimed/completed a bounty isn't documented publicly,
+// so we check every plausible field name here. If the real payload uses a different key,
+// add it to this list — that's the only line you should need to touch.
+const CLAIMANT_FIELDS = [
+  'claimed_by', 'claimant', 'claimant_wallet', 'claimant_address',
+  'winner', 'winner_address', 'submitter', 'submitted_by',
+  'assignee', 'wallet', 'wallet_address', 'hunter', 'hunter_address'
+];
+const TAG_FIELDS = ['tags', 'category', 'categories', 'topic', 'labels'];
+const REWARD_FIELDS = ['reward', 'reward_usdc', 'amount', 'usdc_amount', 'payout'];
+const STATUS_FIELDS = ['status'];
+
+const rawLog = [];
+function logRaw(label, data) {
+  rawLog.push('--- ' + label + ' ---\n' + JSON.stringify(data, null, 2).slice(0, 4000));
+  document.getElementById('raw').textContent = rawLog.join('\n\n');
+}
+
+function firstField(obj, keys) {
+  for (const k of keys) {
+    if (obj && obj[k] !== undefined && obj[k] !== null) return obj[k];
+  }
+  return undefined;
+}
+
+function normalizeBounty(b) {
+  const tagsRaw = firstField(b, TAG_FIELDS);
+  let tags = [];
+  if (Array.isArray(tagsRaw)) tags = tagsRaw;
+  else if (typeof tagsRaw === 'string') tags = tagsRaw.split(/[,\s]+/).filter(Boolean);
+  return {
+    id: b.id ?? b.bounty_id ?? b._id ?? Math.random().toString(36).slice(2),
+    title: b.title ?? b.name ?? 'untitled bounty',
+    description: b.description ?? b.desc ?? '',
+    tags: tags.map(t => String(t).toLowerCase()),
+    reward: Number(firstField(b, REWARD_FIELDS)) || 0,
+    status: String(firstField(b, STATUS_FIELDS) ?? '').toLowerCase(),
+    claimant: (firstField(b, CLAIMANT_FIELDS) ?? '').toString().toLowerCase(),
+    createdAt: b.created_at ?? b.createdAt ?? b.posted_at ?? null,
+    raw: b
+  };
+}
+
+async function fetchBounties() {
+  const res = await fetch(BOARD_API + '/bounties');
+  if (!res.ok) throw new Error('board API returned ' + res.status);
+  const data = await res.json();
+  const list = Array.isArray(data) ? data : (data.bounties || data.data || []);
+  logRaw('GET /bounties (first 5 of ' + list.length + ')', list.slice(0, 5));
+  return list.map(normalizeBounty);
+}
+
+async function fetchChainActivity(wallet) {
+  try {
+    const res = await fetch(`${BLOCKSCOUT_API}/addresses/${wallet}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    logRaw('GET base blockscout /addresses/' + wallet, data);
+    return {
+      txCount: Number(data.transactions_count ?? data.tx_count ?? 0),
+      tokenTransfers: Number(data.token_transfers_count ?? 0)
+    };
+  } catch (e) {
+    logRaw('blockscout fetch failed', String(e));
+    return null;
+  }
+}
+
+// ---------- history + profile building ----------
+function buildWalletProfile(wallet, allBounties) {
+  const w = wallet.toLowerCase();
+  const past = allBounties.filter(b => b.claimant && b.claimant === w);
+  const tagCounts = {};
+  let totalReward = 0;
+  past.forEach(b => {
+    totalReward += b.reward;
+    b.tags.forEach(t => { tagCounts[t] = (tagCounts[t] || 0) + 1; });
+  });
+  const avgReward = past.length ? totalReward / past.length : null;
+  const topTags = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]).map(([t]) => t);
+  return { past, topTags, avgReward, coldStart: past.length === 0 };
+}
+
+// ---------- scoring ----------
+function jaccard(a, b) {
+  if (!a.length || !b.length) return 0;
+  const setA = new Set(a), setB = new Set(b);
+  let inter = 0;
+  setA.forEach(x => { if (setB.has(x)) inter++; });
+  const union = new Set([...a, ...b]).size;
+  return union ? inter / union : 0;
+}
+
+function scoreBounty(bounty, profile, chainActivity) {
+  // 1. tag affinity vs. wallet's completed-bounty history (0-50)
+  const tagScore = profile.coldStart ? 0 : jaccard(bounty.tags, profile.topTags) * 50;
+
+  // 2. reward-size fit vs. wallet's historical average take (0-20)
+  let rewardScore = 10; // neutral default for cold start
+  if (!profile.coldStart && profile.avgReward) {
+    const diff = Math.abs(bounty.reward - profile.avgReward) / Math.max(profile.avgReward, 1);
+    rewardScore = Math.max(0, 20 - diff * 20);
+  }
+
+  // 3. general chain activity as an experience/readiness proxy (0-20)
+  let activityScore = 5; // small default if blockscout lookup failed
+  if (chainActivity) {
+    activityScore = Math.min(20, Math.log2(chainActivity.txCount + 1) * 4);
+  }
+
+  // 4. cold-start fallback: reward size alone, larger bounties surfaced first (0-10)
+  const freshnessScore = profile.coldStart ? Math.min(10, bounty.reward / 5) : 5;
+
+  const total = tagScore + rewardScore + activityScore + freshnessScore;
+  return {
+    total: Math.round(total * 10) / 10,
+    breakdown: { tagScore, rewardScore, activityScore, freshnessScore }
+  };
+}
+
+function reasonFor(bounty, profile, score) {
+  const bits = [];
+  if (!profile.coldStart && score.breakdown.tagScore > 15) {
+    bits.push(`overlaps with tags you've completed before (${profile.topTags.slice(0, 3).join(', ')})`);
+  }
+  if (!profile.coldStart && profile.avgReward && score.breakdown.rewardScore > 12) {
+    bits.push(`reward ($${bounty.reward}) is close to your historical average ($${Math.round(profile.avgReward)})`);
+  }
+  if (score.breakdown.activityScore > 12) {
+    bits.push('wallet shows solid on-chain activity on Base');
+  }
+  if (profile.coldStart) {
+    bits.push('no completion history found for this wallet — ranked by reward size as a cold-start default');
+  }
+  if (!bits.length) bits.push('lower relative match on current signals');
+  return bits.join('; ');
+}
+
+// ---------- rendering ----------
+function fmtProfile(wallet, profile, chainActivity, usingFallback) {
+  const el = document.createElement('div');
+  el.className = 'profile';
+  el.innerHTML = `
+    <div><b>wallet</b> ${wallet}</div>
+    <div><b>past completions on board</b> ${profile.past.length}</div>
+    ${profile.topTags.length ? `<div><b>top tags</b> ${profile.topTags.slice(0,6).map(t=>`<span class="tag">${t}</span>`).join('')}</div>` : ''}
+    ${profile.avgReward ? `<div><b>avg historical reward</b> $${Math.round(profile.avgReward)}</div>` : ''}
+    <div><b>base tx count</b> ${chainActivity ? chainActivity.txCount : 'unavailable'}</div>
+    ${usingFallback ? `<div style="color:var(--warn)"><b>board currently has 0 open bounties</b> — ranking runs against all posted bounties instead, as a demo of the same logic.</div>` : ''}
+  `;
+  return el;
+}
+
+function renderCard(b, score, profile) {
+  const el = document.createElement('div');
+  el.className = 'card';
+  const bd = score.breakdown;
+  const bar = (label, val, max) => `
+    <div><span class="lbl">${label}</span><span class="track"><span class="fill" style="width:${Math.min(100, val/max*100)}%"></span></span><span class="val">${val.toFixed(1)}</span></div>`;
+  el.innerHTML = `
+    <div class="row">
+      <div class="title">${b.title}</div>
+      <div class="score">${score.total}<span>/ 100</span></div>
+    </div>
+    <div class="meta"><b>$${b.reward || '?'}</b> USDC &nbsp;·&nbsp; ${b.status || 'unknown status'} &nbsp;·&nbsp; ${b.tags.join(', ') || 'no tags'}</div>
+    ${b.description ? `<div class="desc">${b.description.slice(0, 220)}${b.description.length > 220 ? '…' : ''}</div>` : ''}
+    <div class="bars">
+      ${bar('tag match', bd.tagScore, 50)}
+      ${bar('reward fit', bd.rewardScore, 20)}
+      ${bar('chain activity', bd.activityScore, 20)}
+      ${bar('freshness', bd.freshnessScore, 10)}
+    </div>
+    <div class="why">→ ${reasonFor(b, profile, score)}</div>
+  `;
+  return el;
+}
+
+// ---------- main flow ----------
+const form = document.getElementById('f');
+const statusEl = document.getElementById('status');
+const outputEl = document.getElementById('output');
+const goBtn = document.getElementById('go');
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const wallet = document.getElementById('wallet').value.trim();
+  if (!/^0x[a-fA-F0-9]{40}$/.test(wallet)) {
+    statusEl.textContent = 'enter a valid 0x... address (42 chars).';
+    statusEl.className = 'status err';
+    return;
+  }
+  statusEl.className = 'status';
+  statusEl.textContent = 'fetching live bounty board...';
+  outputEl.innerHTML = '';
+  goBtn.disabled = true;
+
+  try {
+    const allBounties = await fetchBounties();
+    statusEl.textContent = 'checking wallet activity on Base...';
+    const chainActivity = await fetchChainActivity(wallet);
+
+    const profile = buildWalletProfile(wallet, allBounties);
+
+    let openBounties = allBounties.filter(b => b.status === 'open' || b.status === 'active' || b.status === '');
+    let usingFallback = false;
+    if (openBounties.length === 0) {
+      usingFallback = true;
+      openBounties = allBounties;
+    }
+
+    const ranked = openBounties
+      .map(b => ({ bounty: b, score: scoreBounty(b, profile, chainActivity) }))
+      .sort((a, b) => b.score.total - a.score.total);
+
+    statusEl.textContent = `ranked ${ranked.length} bounties against ${allBounties.length} total on the board.`;
+
+    outputEl.appendChild(fmtProfile(wallet, profile, chainActivity, usingFallback));
+
+    if (!ranked.length) {
+      const empty = document.createElement('div');
+      empty.className = 'empty';
+      empty.textContent = 'no bounties returned by the board API right now.';
+      outputEl.appendChild(empty);
+    } else {
+      ranked.slice(0, 15).forEach(({ bounty, score }) => {
+        outputEl.appendChild(renderCard(bounty, score, profile));
+      });
+    }
+  } catch (err) {
+    statusEl.className = 'status err';
+    statusEl.textContent = 'error: ' + err.message + ' — the board API may be unreachable from this browser (CORS) or down.';
+    logRaw('error', String(err));
+  } finally {
+    goBtn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>
